@@ -38,15 +38,47 @@ TGLC_WRAPPER_ASSOC(bn,BIGNUM)
 
 TGLC_rsa *TGLC_rsa_new (unsigned long e, int n_bytes, const unsigned char *n) {
   RSA *ret = RSA_new ();
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
   ret->e = unwrap_bn (TGLC_bn_new ());
   TGLC_bn_set_word (wrap_bn (ret->e), e);
   ret->n = unwrap_bn (TGLC_bn_bin2bn (n, n_bytes, NULL));
+#else
+  BIGNUM *e_bn = unwrap_bn (TGLC_bn_new ());
+  BIGNUM *n_bn = unwrap_bn (TGLC_bn_bin2bn (n, n_bytes, NULL));
+  TGLC_bn_set_word (wrap_bn (e_bn), e);
+  if (!RSA_set0_key (ret, n_bn, e_bn, NULL)) {
+    TGLC_bn_free (wrap_bn (e_bn));
+    TGLC_bn_free (wrap_bn (n_bn));
+    RSA_free (ret);
+    return NULL;
+  }
+#endif
   return wrap_rsa (ret);
+}
+
+static BIGNUM *TGLC_rsa_get_n (RSA *key) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+  return key->n;
+#else
+  const BIGNUM *n = NULL;
+  RSA_get0_key (key, &n, NULL, NULL);
+  return (BIGNUM *)n;
+#endif
+}
+
+static BIGNUM *TGLC_rsa_get_e (RSA *key) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+  return key->e;
+#else
+  const BIGNUM *e = NULL;
+  RSA_get0_key (key, NULL, &e, NULL);
+  return (BIGNUM *)e;
+#endif
 }
 
 #define RSA_GETTER(M)                                                          \
   TGLC_bn *TGLC_rsa_ ## M (TGLC_rsa *key) {                                    \
-    return wrap_bn (unwrap_rsa (key)->M);                                      \
+    return wrap_bn (TGLC_rsa_get_ ## M (unwrap_rsa (key)));                    \
   }                                                                            \
 
 RSA_GETTER(n);
